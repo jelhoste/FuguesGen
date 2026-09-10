@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Générateur de fugues — démo de rendu (Phase 3)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vexflow/4.2.3/vexflow.js"></script>
+<style>
+  body { font-family: -apple-system, Segoe UI, sans-serif; background: #faf9f6; margin: 0; padding: 24px; color: #222; }
+  h1 { font-size: 1.3rem; margin-bottom: 4px; }
+  .meta { color: #666; margin-bottom: 20px; font-size: 0.9rem; }
+  .voice-label { font-size: 0.85rem; color: #555; margin: 12px 0 2px 4px; }
+  #score { overflow-x: auto; background: white; border-radius: 8px; padding: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  .note { color: #444; }
+</style>
+</head>
+<body>
+  <h1>Exposition de fugue générée — Phase 3</h1>
+  <div class="meta">Tonalité : <span id="meta-key"></span> — <span id="meta-voices"></span> voix — sujet de <span id="meta-beats"></span> temps par entrée</div>
+  <div id="score"></div>
+  <p class="note">Rendu de démonstration (VexFlow) : chaque voix est affichée sur sa propre portée, en continu (pas encore de découpage en mesures ni de lecture audio — ce sera ajouté dans une phase ultérieure). Le début en silence de chaque voix correspond à son entrée décalée dans l'exposition.</p>
+
+<script>
+const DATA = {
+  "key": "C majeur",
+  "subjectBeats": 4,
+  "numVoices": 3,
+  "voices": [
+    {
+      "firstStart": 0,
+      "notes": [
+        {
+          "key": "c/4",
+          "duration": "16",
+          "beats": 0.25
+        },
+        {
+          "key": "e/3",
+          "duration": "8d",
+          "beats": 0.75
+        },
+        {
+          "key": "f/3",
+          "duration": "h",
+          "beats": 2
+        },
+        {
+          "key": "c/4",
+          "duration": "q",
+          "beats": 1
+        },
+        {
+          "key": "g/3",
+          "duration": "q",
+          "beats": 1
+        },
+        {
+          "key": "a/3",
+          "duration": "q",
+          "beats": 1
+        },
+        {
+          "key": "e/4",
+          "duration": "q",
+          "beats": 1
+        },
+        {
+          "key": "d/4",
+          "duration": "16",
+          "beats": 0.25
+        },
+        {
+          "key": "d/5",
+          "duration": "8",
+          "beats": 0.5
+        },
+        {
+          "key": "g/4",
+          "duration": "16",
+          "beats": 0.25
+        },
+        {
+          "key": "c/4",
+          "duration": "qd",
+          "beats": 1.5
+        },
+        {
+          "key": "d/4",
+          "duration": "8",
+          "beats": 0.5
+        },
+        {
+          "key": "d/5",
+          "duration": "16",
+          "beats": 0.25
+        },
+        {
+          "key": "d/6",
+          "duration": "16",
+          "beats": 0.25
+        },
+        {
+          "key": "c/6",
+          "duration": "8",
+          "beats": 0.5
+        },
+        {
+          "key": "c/5",
+          "duration": "8",
+          "beats": 0.5
+        },
+        {
+          "key": "d/5",
+          "duration": "16",
+          "beats": 0.25
+        },
+        {
+          "key": "e/5",
+          "duration": "16",
+          "beats": 0.25
+        }
+      ]
+    },
+    {
+      "firstStart": 4,
+      "notes": [
+        {
+          "key": "g/3",
+          "duration": "16",
+          "beats": 0.25
+        },
+        {
+          "key": "b/2",
+          "duration": "8d",
+          "beats": 0.75
+        },
+        {
+          "key": "c/4",
+          "duration": "h",
+          "beats": 2
+        },
+        {
+          "key": "g/3",
+          "duration": "q",
+          "beats": 1
+        },
+        {
+          "key": "c/4",
+          "duration": "qd",
+          "beats": 1.5
+        },
+        {
+          "key": "b/3",
+          "duration": "q",
+          "beats": 1
+        },
+        {
+          "key": "a/3",
+          "duration": "q",
+          "beats": 1
+        },
+        {
+          "key": "e/4",
+          "duration": "8",
+          "beats": 0.5
+        }
+      ]
+    },
+    {
+      "firstStart": 8,
+      "notes": [
+        {
+          "key": "c/2",
+          "duration": "16",
+          "beats": 0.25
+        },
+        {
+          "key": "e/1",
+          "duration": "8d",
+          "beats": 0.75
+        },
+        {
+          "key": "f/1",
+          "duration": "h",
+          "beats": 2
+        },
+        {
+          "key": "c/2",
+          "duration": "q",
+          "beats": 1
+        }
+      ]
+    }
+  ]
+};
+
+document.getElementById('meta-key').textContent = DATA.key;
+document.getElementById('meta-voices').textContent = DATA.numVoices;
+document.getElementById('meta-beats').textContent = DATA.subjectBeats;
+
+const { Renderer, Stave, StaveNote, Voice, Formatter, Dot } = Vex.Flow;
+
+function parseDuration(code) {
+  const dotted = code.endsWith('d');
+  const base = dotted ? code.slice(0, -1) : code;
+  return { base, dotted };
+}
+
+function buildNotes(voiceData) {
+  const notes = [];
+  let restBeats = voiceData.firstStart;
+  const restMap = [[4, 'wr'], [2, 'hr'], [1, 'qr'], [0.5, '8r'], [0.25, '16r']];
+  while (restBeats > 1e-6) {
+    const found = restMap.find(([v]) => v <= restBeats + 1e-6) || [0.25, '16r'];
+    notes.push(new StaveNote({ keys: ['b/4'], duration: found[1] }));
+    restBeats -= found[0];
+  }
+
+  for (const n of voiceData.notes) {
+    const parsed = parseDuration(n.duration);
+    const staveNote = new StaveNote({ keys: [n.key], duration: parsed.base, auto_stem: true });
+    if (n.key.includes('#')) staveNote.addModifier(new Vex.Flow.Accidental('#'));
+    if (parsed.dotted) Dot.buildAndAttach([staveNote], { all: true });
+    notes.push(staveNote);
+  }
+  return notes;
+}
+
+const container = document.getElementById('score');
+const width = 1600;
+const staveHeight = 110;
+const renderer = new Renderer(container, Renderer.Backends.SVG);
+renderer.resize(width, staveHeight * DATA.voices.length + 40);
+const context = renderer.getContext();
+
+DATA.voices.forEach((voiceData, idx) => {
+  const label = document.createElement('div');
+  label.className = 'voice-label';
+  label.textContent = 'Voix ' + (idx + 1) + ' (entrée à t=' + voiceData.firstStart + ')';
+  container.parentNode.insertBefore(label, container);
+});
+
+let y = 20;
+DATA.voices.forEach((voiceData) => {
+  const stave = new Stave(10, y, width - 30);
+  if (y === 20) stave.addClef('treble');
+  stave.setContext(context).draw();
+
+  const notes = buildNotes(voiceData);
+  const voice = new Voice({ num_beats: notes.length, beat_value: 4 });
+  voice.setMode(Voice.Mode.SOFT);
+  voice.addTickables(notes);
+
+  new Formatter().joinVoices([voice]).format([voice], width - 60);
+  voice.draw(context, stave);
+
+  y += staveHeight;
+});
+</script>
+</body>
+</html>
