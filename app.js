@@ -147,10 +147,18 @@ let currentSynthController = null;
 function renderAndPreparePlayback(container, piece) {
   container.innerHTML = '';
   const abcText = pieceToAbc(piece);
+  console.log('--- ABC généré ---\n' + abcText);
+
+  const warnings = [];
   const visualObjs = ABCJS.renderAbc(container, abcText, {
-    responsive: 'resize',
     staffwidth: 740,
-  });
+    add_classes: true,
+  }, {}, { warningCallback: (w) => warnings.push(w) });
+
+  if (warnings.length > 0) console.warn('Avertissements abcjs :', warnings);
+  if (!visualObjs || !visualObjs[0] || container.children.length === 0) {
+    throw new Error('abcjs n\'a produit aucun rendu visible (voir la console pour le texte ABC et les avertissements).');
+  }
   return visualObjs[0];
 }
 
