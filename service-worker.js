@@ -7,8 +7,7 @@ const ASSETS = [
   './fugue-lib.js',
   './manifest.json',
   './icon.svg',
-  'https://cdnjs.cloudflare.com/ajax/libs/vexflow/4.2.3/vexflow.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js',
+  'https://cdn.jsdelivr.net/npm/abcjs@6.4.4/dist/abcjs-basic-min.js',
 ];
 
 self.addEventListener('install', (event) => {

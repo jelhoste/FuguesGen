@@ -1,21 +1,28 @@
 'use strict';
 
-const NOTE_NAMES = ['c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b'];
+const NOTE_LETTERS = ['C', 'C', 'D', 'D', 'E', 'F', 'F', 'G', 'G', 'A', 'A', 'B'];
+const NOTE_ACCIDENTALS = ['', '^', '', '^', '', '', '^', '', '^', '', '^', ''];
 
-function midiToVexKey(midi) {
-  const pc = ((Math.round(midi) % 12) + 12) % 12;
-  const octave = Math.floor(Math.round(midi) / 12) - 1;
-  return { key: `${NOTE_NAMES[pc]}/${octave}`, sharp: NOTE_NAMES[pc].includes('#') };
+/** Convertit un MIDI en jeton de hauteur ABC (lettre + altération + marques d'octave). */
+function midiToAbcPitch(midi) {
+  const m = Math.round(midi);
+  const pc = ((m % 12) + 12) % 12;
+  const octaveNum = Math.floor(m / 12) - 1; // 4 = octave du Do central (MIDI 60)
+  let letter = NOTE_LETTERS[pc];
+  const accidental = NOTE_ACCIDENTALS[pc];
+  let marks = '';
+  if (octaveNum >= 5) {
+    letter = letter.toLowerCase();
+    marks = "'".repeat(octaveNum - 5);
+  } else if (octaveNum < 4) {
+    marks = ','.repeat(4 - octaveNum);
+  }
+  return accidental + letter + marks;
 }
 
-/** Convertit une durée en temps (noire=1) vers un code de durée VexFlow (avec point si besoin). */
-function beatsToVexDuration(beats) {
-  const table = [[4, 'w'], [3, 'hd'], [2, 'h'], [1.5, 'qd'], [1, 'q'], [0.75, '8d'], [0.5, '8'], [0.375, '16d'], [0.25, '16']];
-  for (const [val, code] of table) if (Math.abs(val - beats) < 1e-6) return code;
-  // Fallback : la valeur la plus proche dans la table.
-  let best = table[0];
-  for (const t of table) if (Math.abs(t[0] - beats) < Math.abs(best[0] - beats)) best = t;
-  return best[1];
+/** Multiplicateur de durée ABC pour une unité de note = double-croche (L:1/16). */
+function beatsToAbcLength(beats) {
+  return Math.max(1, Math.round(beats * 4));
 }
 
 function noteName(midi) {
@@ -81,98 +88,89 @@ function generateFullPiece(params, maxAttempts) {
   throw lastError || new Error('échec inconnu');
 }
 
-// ---------- Rendu VexFlow ----------
+// ---------- Conversion vers ABC notation ----------
 
-function renderScore(container, piece) {
+function pieceToAbc(piece) {
+  const lines = [
+    'X:1',
+    `T:Fugue en ${piece.key.toString()}`,
+    'M:4/4',
+    'L:1/16',
+    'K:C', // pas d'armure : toutes les altérations sont écrites explicitement note par note
+  ];
+
+  piece.exp.voices.forEach((voiceData, idx) => {
+    lines.push(`V:${idx + 1} clef=${idx === piece.exp.voices.length - 1 ? 'bass' : 'treble'} name="Voix ${idx + 1}"`);
+
+    const tokens = [];
+    let beatsSinceBar = 0;
+
+    function pushDuration(beats, tokenBuilder) {
+      // Découpe une durée en morceaux qui ne dépassent jamais une mesure
+      // (4 temps), pour insérer les barres de mesure au bon endroit.
+      let remaining = beats;
+      let first = true;
+      while (remaining > 1e-6) {
+        const room = 4 - beatsSinceBar;
+        const chunk = Math.min(remaining, room);
+        tokens.push(tokenBuilder(chunk, first));
+        beatsSinceBar += chunk;
+        remaining -= chunk;
+        first = false;
+        if (beatsSinceBar >= 4 - 1e-6) {
+          tokens.push('|');
+          beatsSinceBar = 0;
+        }
+      }
+    }
+
+    if (voiceData.firstStart > 1e-6) {
+      pushDuration(voiceData.firstStart, (chunk) => `z${beatsToAbcLength(chunk)}`);
+    }
+    for (const n of voiceData.midiNotes) {
+      const pitch = midiToAbcPitch(n.midi);
+      pushDuration(n.duration, (chunk) => `${pitch}${beatsToAbcLength(chunk)}`);
+    }
+    if (tokens[tokens.length - 1] === '|') tokens.pop();
+    tokens.push('|]');
+
+    lines.push(tokens.join(' '));
+  });
+
+  return lines.join('\n');
+}
+
+// ---------- Rendu + lecture (abcjs) ----------
+
+let currentSynthController = null;
+
+function renderAndPreparePlayback(container, piece) {
   container.innerHTML = '';
-  const labelsContainer = container.parentElement;
-  labelsContainer.querySelectorAll('.voice-label').forEach(el => el.remove());
-
-  const width = Math.max(900, piece.exp.voices[0].midiNotes.reduce((s, n) => s + n.duration, 0) * 45);
-  const staveHeight = 110;
-  const { Renderer, Stave, StaveNote, Voice, Formatter, Dot, Accidental } = Vex.Flow;
-  const renderer = new Renderer(container, Renderer.Backends.SVG);
-  renderer.resize(width, staveHeight * piece.exp.voices.length + 30);
-  const context = renderer.getContext();
-
-  piece.exp.voices.forEach((voiceData, idx) => {
-    const label = document.createElement('div');
-    label.className = 'voice-label';
-    label.textContent = `Voix ${idx + 1}`;
-    container.before(label);
+  const abcText = pieceToAbc(piece);
+  const visualObjs = ABCJS.renderAbc(container, abcText, {
+    responsive: 'resize',
+    staffwidth: 740,
   });
-
-  let y = 10;
-  piece.exp.voices.forEach((voiceData, idx) => {
-    const stave = new Stave(10, y, width - 30);
-    if (idx === 0) stave.addClef('treble');
-    stave.setContext(context).draw();
-
-    const notes = [];
-    let restBeats = voiceData.firstStart;
-    while (restBeats > 1e-6) {
-      const step = [4, 2, 1, 0.5, 0.25].find(v => v <= restBeats + 1e-6) || 0.25;
-      notes.push(new StaveNote({ keys: ['b/4'], duration: beatsToVexDuration(step) + 'r' }));
-      restBeats -= step;
-    }
-    for (const n of voiceData.midiNotes) {
-      const { key, sharp } = midiToVexKey(n.midi);
-      const durCode = beatsToVexDuration(n.duration);
-      const dotted = durCode.endsWith('d');
-      const base = dotted ? durCode.slice(0, -1) : durCode;
-      const staveNote = new StaveNote({ keys: [key], duration: base });
-      if (sharp) staveNote.addModifier(new Accidental('#'));
-      if (dotted) Dot.buildAndAttach([staveNote], { all: true });
-      notes.push(staveNote);
-    }
-
-    const voice = new Voice({ num_beats: notes.length, beat_value: 4 });
-    voice.setMode(Voice.Mode.SOFT);
-    voice.addTickables(notes);
-    new Formatter().joinVoices([voice]).format([voice], width - 60);
-    voice.draw(context, stave);
-
-    y += staveHeight;
-  });
+  return visualObjs[0];
 }
 
-function renderStructure(el, piece, params) {
-  const rows = piece.structure.map(s => `<div><b>${s.label}</b> — t=${s.start.toFixed(2)} à t=${s.end.toFixed(2)}</div>`);
-  if (params.stretto && piece.strettoInfo && !piece.strettoInfo.ok) {
-    rows.push(`<div>Strette : aucun décalage viable trouvé pour ce sujet (propriété réelle du sujet, réessayez pour en générer un nouveau)</div>`);
+async function stopPlayback() {
+  if (currentSynthController) {
+    try { await currentSynthController.stop(); } catch (e) { /* ignore */ }
+    currentSynthController = null;
   }
-  if (params.cadence && !piece.cadenceOk) {
-    rows.push(`<div>Cadence finale : non trouvée pour cette disposition de voix (cas rare, réessayez)</div>`);
+}
+
+async function playPiece(visualObj) {
+  await stopPlayback();
+  if (!ABCJS.synth.supportsAudio()) {
+    throw new Error("ce navigateur ne supporte pas la lecture audio Web Audio.");
   }
-  const subjectDesc = piece.exp.subject.notes.map(n => noteName(piece.key.degreeToMidi(n.degree, n.octave, n.raised7th))).join(' – ');
-  el.innerHTML = `<div><b>Tonalité</b> — ${piece.key.toString()}</div><div><b>Sujet</b> — ${subjectDesc}</div>` + rows.join('');
-}
-
-// ---------- Lecture ----------
-
-let currentSynths = [];
-function stopPlayback() {
-  Tone.Transport.stop();
-  Tone.Transport.cancel();
-  currentSynths.forEach(s => s.dispose());
-  currentSynths = [];
-}
-
-function playPiece(piece) {
-  stopPlayback();
-  const secondsPerBeat = 0.42; // ~140 noires/minute
-  piece.exp.voices.forEach((voiceData, idx) => {
-    const synth = new Tone.Synth({ oscillator: { type: idx === 0 ? 'triangle' : idx === 1 ? 'sine' : 'sawtooth' }, volume: -8 }).toDestination();
-    currentSynths.push(synth);
-    let t = voiceData.firstStart * secondsPerBeat;
-    for (const n of voiceData.midiNotes) {
-      const freq = Tone.Frequency(n.midi, 'midi').toFrequency();
-      const dur = n.duration * secondsPerBeat * 0.92;
-      Tone.Transport.scheduleOnce((time) => synth.triggerAttackRelease(freq, dur, time), t);
-      t += n.duration * secondsPerBeat;
-    }
-  });
-  Tone.Transport.start();
+  const synth = new ABCJS.synth.CreateSynth();
+  await synth.init({ visualObj });
+  await synth.prime();
+  synth.start();
+  currentSynthController = synth;
 }
 
 // ---------- Interface ----------
@@ -194,7 +192,19 @@ const els = {
   score: document.getElementById('score'),
 };
 
-let lastPiece = null;
+let lastVisualObj = null;
+
+function renderStructure(el, piece, params) {
+  const rows = piece.structure.map(s => `<div><b>${s.label}</b> — t=${s.start.toFixed(2)} à t=${s.end.toFixed(2)}</div>`);
+  if (params.stretto && piece.strettoInfo && !piece.strettoInfo.ok) {
+    rows.push(`<div>Strette : aucun décalage viable trouvé pour ce sujet (propriété réelle du sujet, réessayez pour en générer un nouveau)</div>`);
+  }
+  if (params.cadence && !piece.cadenceOk) {
+    rows.push(`<div>Cadence finale : non trouvée pour cette disposition de voix (cas rare, réessayez)</div>`);
+  }
+  const subjectDesc = piece.exp.subject.notes.map(n => noteName(piece.key.degreeToMidi(n.degree, n.octave, n.raised7th))).join(' – ');
+  el.innerHTML = `<div><b>Tonalité</b> — ${piece.key.toString()}</div><div><b>Sujet</b> — ${subjectDesc}</div>` + rows.join('');
+}
 
 els.generate.addEventListener('click', () => {
   const params = {
@@ -217,9 +227,8 @@ els.generate.addEventListener('click', () => {
   setTimeout(() => {
     try {
       const piece = generateFullPiece(params, 20);
-      lastPiece = piece;
       renderStructure(els.structure, piece, params);
-      renderScore(els.score, piece);
+      lastVisualObj = renderAndPreparePlayback(els.score, piece);
       els.result.hidden = false;
       els.status.textContent = 'Fugue générée.';
       els.play.disabled = false;
@@ -233,9 +242,16 @@ els.generate.addEventListener('click', () => {
 });
 
 els.play.addEventListener('click', async () => {
-  if (!lastPiece) return;
-  await Tone.start();
-  playPiece(lastPiece);
+  if (!lastVisualObj) return;
+  els.play.disabled = true;
+  try {
+    await playPiece(lastVisualObj);
+  } catch (e) {
+    els.status.className = 'error';
+    els.status.textContent = 'Lecture impossible : ' + e.message;
+  } finally {
+    els.play.disabled = false;
+  }
 });
 
 if ('serviceWorker' in navigator) {
