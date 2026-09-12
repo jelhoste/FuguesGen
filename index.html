@@ -2,259 +2,249 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<title>Générateur de fugues — démo de rendu (Phase 3)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#151a23">
+<title>Générateur de fugues</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/vexflow/4.2.3/vexflow.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+<script src="fugue-lib.js"></script>
 <style>
-  body { font-family: -apple-system, Segoe UI, sans-serif; background: #faf9f6; margin: 0; padding: 24px; color: #222; }
-  h1 { font-size: 1.3rem; margin-bottom: 4px; }
-  .meta { color: #666; margin-bottom: 20px; font-size: 0.9rem; }
-  .voice-label { font-size: 0.85rem; color: #555; margin: 12px 0 2px 4px; }
-  #score { overflow-x: auto; background: white; border-radius: 8px; padding: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-  .note { color: #444; }
+  :root {
+    --ink: #151a23;
+    --ink-soft: #1e2530;
+    --parchment: #ece4d3;
+    --parchment-dim: #b9b0a0;
+    --brass: #c9a35f;
+    --brass-dim: #8a7548;
+    --line: #333d4d;
+    --danger: #c97a5f;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--ink);
+    color: var(--parchment);
+    font-family: 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+  }
+  body { padding: 0 0 4rem; }
+
+  header {
+    padding: 2.5rem 1.5rem 1.5rem;
+    max-width: 880px;
+    margin: 0 auto;
+  }
+  header h1 {
+    font-size: 1.9rem;
+    font-weight: 500;
+    margin: 0 0 0.35rem;
+    letter-spacing: 0.01em;
+  }
+  header p {
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+    color: var(--parchment-dim);
+    margin: 0;
+    font-size: 0.95rem;
+    max-width: 60ch;
+    line-height: 1.5;
+  }
+
+  main { max-width: 880px; margin: 0 auto; padding: 0 1.5rem; }
+
+  .panel {
+    background: var(--ink-soft);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1.5rem;
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+  }
+
+  .field-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1rem 1.25rem;
+  }
+  .field label {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--parchment-dim);
+    margin-bottom: 0.35rem;
+  }
+  .field select, .field input[type=number] {
+    width: 100%;
+    background: var(--ink);
+    border: 1px solid var(--line);
+    color: var(--parchment);
+    border-radius: 3px;
+    padding: 0.5rem 0.6rem;
+    font-size: 0.95rem;
+    font-family: inherit;
+  }
+  .field select:focus, .field input:focus {
+    outline: 2px solid var(--brass);
+    outline-offset: 1px;
+  }
+
+  .toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem 1.4rem;
+    margin-top: 1.25rem;
+    padding-top: 1.1rem;
+    border-top: 1px solid var(--line);
+  }
+  .toggles label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--parchment);
+    cursor: pointer;
+  }
+  .toggles input { accent-color: var(--brass); width: 16px; height: 16px; }
+
+  .actions {
+    margin-top: 1.4rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  button.primary {
+    background: var(--brass);
+    color: var(--ink);
+    border: none;
+    border-radius: 3px;
+    padding: 0.65rem 1.4rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  button.primary:hover { background: #d9b571; }
+  button.primary:disabled { background: var(--brass-dim); cursor: wait; }
+  button.secondary {
+    background: transparent;
+    color: var(--parchment);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 0.6rem 1.1rem;
+    font-size: 0.9rem;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  button.secondary:hover { border-color: var(--brass-dim); }
+  button.secondary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  #status {
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+    font-size: 0.88rem;
+    color: var(--parchment-dim);
+    min-height: 1.4em;
+  }
+  #status.error { color: var(--danger); }
+
+  #result {
+    margin-top: 2rem;
+  }
+  #structure {
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+    font-size: 0.88rem;
+    color: var(--parchment-dim);
+    margin-bottom: 1rem;
+    line-height: 1.7;
+  }
+  #structure b { color: var(--parchment); font-weight: 600; }
+  .voice-label {
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+    font-size: 0.78rem;
+    color: var(--parchment-dim);
+    margin: 0.3rem 0 0.1rem 0.2rem;
+  }
+  #score-wrap {
+    overflow-x: auto;
+    background: var(--parchment);
+    border-radius: 4px;
+    padding: 14px 8px;
+  }
+
+  footer {
+    max-width: 880px;
+    margin: 2.5rem auto 0;
+    padding: 0 1.5rem;
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+    font-size: 0.78rem;
+    color: var(--parchment-dim);
+  }
 </style>
 </head>
 <body>
-  <h1>Exposition de fugue générée — Phase 3</h1>
-  <div class="meta">Tonalité : <span id="meta-key"></span> — <span id="meta-voices"></span> voix — sujet de <span id="meta-beats"></span> temps par entrée</div>
-  <div id="score"></div>
-  <p class="note">Rendu de démonstration (VexFlow) : chaque voix est affichée sur sa propre portée, en continu (pas encore de découpage en mesures ni de lecture audio — ce sera ajouté dans une phase ultérieure). Le début en silence de chaque voix correspond à son entrée décalée dans l'exposition.</p>
 
-<script>
-const DATA = {
-  "key": "C majeur",
-  "subjectBeats": 4,
-  "numVoices": 3,
-  "voices": [
-    {
-      "firstStart": 0,
-      "notes": [
-        {
-          "key": "c/4",
-          "duration": "16",
-          "beats": 0.25
-        },
-        {
-          "key": "e/3",
-          "duration": "8d",
-          "beats": 0.75
-        },
-        {
-          "key": "f/3",
-          "duration": "h",
-          "beats": 2
-        },
-        {
-          "key": "c/4",
-          "duration": "q",
-          "beats": 1
-        },
-        {
-          "key": "g/3",
-          "duration": "q",
-          "beats": 1
-        },
-        {
-          "key": "a/3",
-          "duration": "q",
-          "beats": 1
-        },
-        {
-          "key": "e/4",
-          "duration": "q",
-          "beats": 1
-        },
-        {
-          "key": "d/4",
-          "duration": "16",
-          "beats": 0.25
-        },
-        {
-          "key": "d/5",
-          "duration": "8",
-          "beats": 0.5
-        },
-        {
-          "key": "g/4",
-          "duration": "16",
-          "beats": 0.25
-        },
-        {
-          "key": "c/4",
-          "duration": "qd",
-          "beats": 1.5
-        },
-        {
-          "key": "d/4",
-          "duration": "8",
-          "beats": 0.5
-        },
-        {
-          "key": "d/5",
-          "duration": "16",
-          "beats": 0.25
-        },
-        {
-          "key": "d/6",
-          "duration": "16",
-          "beats": 0.25
-        },
-        {
-          "key": "c/6",
-          "duration": "8",
-          "beats": 0.5
-        },
-        {
-          "key": "c/5",
-          "duration": "8",
-          "beats": 0.5
-        },
-        {
-          "key": "d/5",
-          "duration": "16",
-          "beats": 0.25
-        },
-        {
-          "key": "e/5",
-          "duration": "16",
-          "beats": 0.25
-        }
-      ]
-    },
-    {
-      "firstStart": 4,
-      "notes": [
-        {
-          "key": "g/3",
-          "duration": "16",
-          "beats": 0.25
-        },
-        {
-          "key": "b/2",
-          "duration": "8d",
-          "beats": 0.75
-        },
-        {
-          "key": "c/4",
-          "duration": "h",
-          "beats": 2
-        },
-        {
-          "key": "g/3",
-          "duration": "q",
-          "beats": 1
-        },
-        {
-          "key": "c/4",
-          "duration": "qd",
-          "beats": 1.5
-        },
-        {
-          "key": "b/3",
-          "duration": "q",
-          "beats": 1
-        },
-        {
-          "key": "a/3",
-          "duration": "q",
-          "beats": 1
-        },
-        {
-          "key": "e/4",
-          "duration": "8",
-          "beats": 0.5
-        }
-      ]
-    },
-    {
-      "firstStart": 8,
-      "notes": [
-        {
-          "key": "c/2",
-          "duration": "16",
-          "beats": 0.25
-        },
-        {
-          "key": "e/1",
-          "duration": "8d",
-          "beats": 0.75
-        },
-        {
-          "key": "f/1",
-          "duration": "h",
-          "beats": 2
-        },
-        {
-          "key": "c/2",
-          "duration": "q",
-          "beats": 1
-        }
-      ]
-    }
-  ]
-};
+<header>
+  <h1>Générateur de fugues</h1>
+  <p>Génère à la volée des fugues respectant les règles académiques du contrepoint : sujet, réponse, contre-sujet, exposition, divertissement, rentrée, pédale, strette et cadence.</p>
+</header>
 
-document.getElementById('meta-key').textContent = DATA.key;
-document.getElementById('meta-voices').textContent = DATA.numVoices;
-document.getElementById('meta-beats').textContent = DATA.subjectBeats;
+<main>
+  <section class="panel">
+    <div class="field-grid">
+      <div class="field">
+        <label for="tonic">Tonique</label>
+        <select id="tonic">
+          <option>C</option><option>C#</option><option>D</option><option>Eb</option>
+          <option>E</option><option>F</option><option>F#</option><option>G</option>
+          <option>Ab</option><option>A</option><option>Bb</option><option>B</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="mode">Mode</label>
+        <select id="mode">
+          <option value="major">Majeur</option>
+          <option value="minor">Mineur</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="voices">Voix</label>
+        <select id="voices">
+          <option value="2">2 voix</option>
+          <option value="3" selected>3 voix</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="subjectBeats">Longueur du sujet (temps)</label>
+        <select id="subjectBeats">
+          <option value="4">4</option>
+          <option value="6" selected>6</option>
+          <option value="8">8</option>
+        </select>
+      </div>
+    </div>
 
-const { Renderer, Stave, StaveNote, Voice, Formatter, Dot } = Vex.Flow;
+    <div class="toggles">
+      <label><input type="checkbox" id="opt-development" checked> Divertissement + rentrée</label>
+      <label><input type="checkbox" id="opt-pedal" checked> Pédale</label>
+      <label><input type="checkbox" id="opt-stretto"> Strette</label>
+      <label><input type="checkbox" id="opt-cadence" checked> Cadence finale</label>
+    </div>
 
-function parseDuration(code) {
-  const dotted = code.endsWith('d');
-  const base = dotted ? code.slice(0, -1) : code;
-  return { base, dotted };
-}
+    <div class="actions">
+      <button class="primary" id="generate">Générer une fugue</button>
+      <button class="secondary" id="play" disabled>Écouter</button>
+      <span id="status"></span>
+    </div>
+  </section>
 
-function buildNotes(voiceData) {
-  const notes = [];
-  let restBeats = voiceData.firstStart;
-  const restMap = [[4, 'wr'], [2, 'hr'], [1, 'qr'], [0.5, '8r'], [0.25, '16r']];
-  while (restBeats > 1e-6) {
-    const found = restMap.find(([v]) => v <= restBeats + 1e-6) || [0.25, '16r'];
-    notes.push(new StaveNote({ keys: ['b/4'], duration: found[1] }));
-    restBeats -= found[0];
-  }
+  <section id="result" hidden>
+    <div id="structure"></div>
+    <div id="score-wrap"><div id="score"></div></div>
+  </section>
+</main>
 
-  for (const n of voiceData.notes) {
-    const parsed = parseDuration(n.duration);
-    const staveNote = new StaveNote({ keys: [n.key], duration: parsed.base, auto_stem: true });
-    if (n.key.includes('#')) staveNote.addModifier(new Vex.Flow.Accidental('#'));
-    if (parsed.dotted) Dot.buildAndAttach([staveNote], { all: true });
-    notes.push(staveNote);
-  }
-  return notes;
-}
+<footer>
+  Rendu par <a href="https://github.com/0xfe/vexflow" style="color:inherit">VexFlow</a>, lecture par <a href="https://tonejs.github.io/" style="color:inherit">Tone.js</a>. Fonctionne hors-ligne une fois chargé.
+</footer>
 
-const container = document.getElementById('score');
-const width = 1600;
-const staveHeight = 110;
-const renderer = new Renderer(container, Renderer.Backends.SVG);
-renderer.resize(width, staveHeight * DATA.voices.length + 40);
-const context = renderer.getContext();
-
-DATA.voices.forEach((voiceData, idx) => {
-  const label = document.createElement('div');
-  label.className = 'voice-label';
-  label.textContent = 'Voix ' + (idx + 1) + ' (entrée à t=' + voiceData.firstStart + ')';
-  container.parentNode.insertBefore(label, container);
-});
-
-let y = 20;
-DATA.voices.forEach((voiceData) => {
-  const stave = new Stave(10, y, width - 30);
-  if (y === 20) stave.addClef('treble');
-  stave.setContext(context).draw();
-
-  const notes = buildNotes(voiceData);
-  const voice = new Voice({ num_beats: notes.length, beat_value: 4 });
-  voice.setMode(Voice.Mode.SOFT);
-  voice.addTickables(notes);
-
-  new Formatter().joinVoices([voice]).format([voice], width - 60);
-  voice.draw(context, stave);
-
-  y += staveHeight;
-});
-</script>
+<script src="app.js"></script>
 </body>
 </html>

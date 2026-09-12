@@ -1,0 +1,12 @@
+{
+  "name": "Générateur de fugues",
+  "short_name": "Fugues",
+  "description": "Génère des fugues respectant les règles académiques du contrepoint.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#151a23",
+  "theme_color": "#151a23",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
