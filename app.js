@@ -175,7 +175,11 @@ async function playPiece(visualObj) {
     throw new Error("ce navigateur ne supporte pas la lecture audio Web Audio.");
   }
   const synth = new ABCJS.synth.CreateSynth();
-  await synth.init({ visualObj });
+  await synth.init({
+    visualObj,
+    millisecondsPerMeasure: visualObj.millisecondsPerMeasure ? visualObj.millisecondsPerMeasure() : 2000,
+    options: {},
+  });
   await synth.prime();
   synth.start();
   currentSynthController = synth;
