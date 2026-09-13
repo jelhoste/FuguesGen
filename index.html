@@ -162,7 +162,8 @@
     margin: 0.3rem 0 0.1rem 0.2rem;
   }
   #score-wrap {
-    overflow-x: auto;
+    overflow-x: hidden;
+    overflow-y: visible;
     background: #ffffff;
     border-radius: 4px;
     padding: 14px 8px;
@@ -237,6 +238,22 @@
       <button class="primary" id="generate">Générer une fugue</button>
       <button class="secondary" id="play" disabled>Écouter</button>
       <span id="status"></span>
+    </div>
+
+    <div class="toggles" style="margin-top:1.1rem;">
+      <label style="display:flex;align-items:center;gap:0.5rem;">
+        Recueil de
+        <input type="number" id="batch-count" value="5" min="2" max="20" style="width:4.5rem;background:var(--ink);color:var(--parchment);border:1px solid var(--line);border-radius:3px;padding:0.3rem;">
+        fugues
+      </label>
+      <button class="secondary" id="generate-batch">Générer le recueil</button>
+    </div>
+    <div class="actions" id="batch-controls" hidden>
+      <div class="field" style="flex:0 0 auto;min-width:220px;">
+        <label for="piece-selector">Fugue affichée</label>
+        <select id="piece-selector"></select>
+      </div>
+      <button class="secondary" id="download-abc">Télécharger le recueil (.abc)</button>
     </div>
   </section>
 
