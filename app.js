@@ -149,10 +149,17 @@ function renderAndPreparePlayback(container, piece, tuneIndex) {
   const abcText = pieceToAbc(piece, tuneIndex);
   console.log('--- ABC généré ---\n' + abcText);
 
+  const staffwidth = Math.max(320, container.parentElement.clientWidth - 40);
   const warnings = [];
   const visualObjs = ABCJS.renderAbc(container, abcText, {
     responsive: 'resize',
-    staffwidth: Math.max(320, container.parentElement.clientWidth - 40),
+    staffwidth,
+    wrap: {
+      minSpacing: 1.8,
+      maxSpacing: 2.7,
+      preferredMeasuresPerLine: 4,
+      lastLineLimit: 1,
+    },
     add_classes: true,
   }, {}, { warningCallback: (w) => warnings.push(w) });
 
@@ -170,15 +177,16 @@ async function stopPlayback() {
   }
 }
 
-async function playPiece(visualObj) {
+async function playPiece(visualObj, bpm) {
   await stopPlayback();
   if (!ABCJS.synth.supportsAudio()) {
     throw new Error("ce navigateur ne supporte pas la lecture audio Web Audio.");
   }
+  const msPerMeasure = 240000 / (bpm || 110); // 4 temps par mesure (M:4/4)
   const synth = new ABCJS.synth.CreateSynth();
   await synth.init({
     visualObj,
-    millisecondsPerMeasure: visualObj.millisecondsPerMeasure ? visualObj.millisecondsPerMeasure() : 2000,
+    millisecondsPerMeasure: msPerMeasure,
     options: {},
   });
   await synth.prime();
@@ -204,6 +212,8 @@ const els = {
   pieceSelector: document.getElementById('piece-selector'),
   downloadAbc: document.getElementById('download-abc'),
   play: document.getElementById('play'),
+  tempo: document.getElementById('tempo'),
+  tempoValue: document.getElementById('tempo-value'),
   status: document.getElementById('status'),
   result: document.getElementById('result'),
   structure: document.getElementById('structure'),
@@ -335,11 +345,15 @@ els.downloadAbc.addEventListener('click', () => {
   URL.revokeObjectURL(url);
 });
 
+els.tempo.addEventListener('input', () => {
+  els.tempoValue.textContent = `${els.tempo.value} noires/min`;
+});
+
 els.play.addEventListener('click', async () => {
   if (!lastVisualObj) return;
   els.play.disabled = true;
   try {
-    await playPiece(lastVisualObj);
+    await playPiece(lastVisualObj, parseInt(els.tempo.value, 10));
   } catch (e) {
     els.status.className = 'error';
     els.status.textContent = 'Lecture impossible : ' + e.message;
