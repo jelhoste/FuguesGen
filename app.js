@@ -66,7 +66,7 @@ function notesToAbcTokens(midiNotes, leadingRestBeats) {
 
 function attemptFullPiece(params) {
   const key = new FugueLib.Key(params.tonic, params.mode);
-  const exp = FugueLib.generateExposition({ key, subjectBeats: params.subjectBeats, numVoices: params.numVoices });
+  const exp = FugueLib.generateExposition({ key, subjectBeats: params.subjectBeats, numVoices: params.numVoices, rhythmStyle: params.rhythmStyle });
   const structure = [];
   structure.push({ label: 'Exposition', start: 0, end: params.numVoices * params.subjectBeats });
 
@@ -142,7 +142,7 @@ function generateSubjectOnly(params) {
   let lastError;
   for (let i = 0; i < 10; i++) {
     try {
-      const subject = FugueLib.generateSubject({ key, totalBeats: params.subjectBeats });
+      const subject = FugueLib.generateSubject({ key, totalBeats: params.subjectBeats, rhythmStyle: params.rhythmStyle });
       const check = FugueLib.validateSubject(key, subject.notes);
       if (!check.valid) throw new Error('sujet invalide (inattendu) : ' + check.errors.join('; '));
       const midiNotes = FugueLib.notesToMidi(key, subject.notes);
@@ -177,7 +177,7 @@ function renderAbcToContainer(container, abcText, options) {
   const visualObjs = ABCJS.renderAbc(container, abcText, {
     responsive: 'resize',
     staffwidth,
-    scale: (options && options.scale) || 0.78,
+    scale: (options && options.scale) || 0.7,
     wrap: {
       minSpacing: 1.8,
       maxSpacing: 2.7,
@@ -232,6 +232,7 @@ const els = {
   mode: document.getElementById('mode'),
   voices: document.getElementById('voices'),
   subjectBeats: document.getElementById('subjectBeats'),
+  rhythmStyle: document.getElementById('rhythmStyle'),
   development: document.getElementById('opt-development'),
   pedal: document.getElementById('opt-pedal'),
   stretto: document.getElementById('opt-stretto'),
@@ -262,6 +263,7 @@ function currentParams() {
     mode: els.mode.value,
     numVoices: parseInt(els.voices.value, 10),
     subjectBeats: parseInt(els.subjectBeats.value, 10),
+    rhythmStyle: els.rhythmStyle.value,
     development: els.development.checked,
     pedal: els.pedal.checked,
     stretto: els.stretto.checked,
@@ -283,8 +285,8 @@ function renderStructure(el, piece, params) {
 
 function showPiece(piece, params, tuneIndex) {
   renderStructure(els.structure, piece, params);
-  lastVisualObj = renderAbcToContainer(els.score, pieceToAbc(piece, tuneIndex));
   els.result.hidden = false;
+  lastVisualObj = renderAbcToContainer(els.score, pieceToAbc(piece, tuneIndex));
   els.play.disabled = false;
 }
 
@@ -400,6 +402,7 @@ const subjEls = {
   tonic: document.getElementById('subj-tonic'),
   mode: document.getElementById('subj-mode'),
   beats: document.getElementById('subj-beats'),
+  rhythmStyle: document.getElementById('subj-rhythmStyle'),
   generate: document.getElementById('subj-generate'),
   status: document.getElementById('subj-status'),
   result: document.getElementById('subj-result'),
@@ -418,6 +421,7 @@ subjEls.generate.addEventListener('click', () => {
     tonic: subjEls.tonic.value,
     mode: subjEls.mode.value,
     subjectBeats: parseInt(subjEls.beats.value, 10),
+    rhythmStyle: subjEls.rhythmStyle.value,
   };
   subjEls.generate.disabled = true;
   subjPlayer.stop();
@@ -429,8 +433,8 @@ subjEls.generate.addEventListener('click', () => {
       const { key, midiNotes } = generateSubjectOnly(params);
       const abcText = subjectToAbc(key, midiNotes, 1);
       subjEls.abc.value = abcText;
-      subjVisualObj = renderAbcToContainer(subjEls.score, abcText, { scale: 1, measuresPerLine: 8 });
       subjEls.result.hidden = false;
+      subjVisualObj = renderAbcToContainer(subjEls.score, abcText, { scale: 1, measuresPerLine: 8 });
       subjEls.play.disabled = false;
       subjEls.status.textContent = 'Sujet généré.';
     } catch (e) {

@@ -276,9 +276,34 @@
 
     /**
      * Génère un rythme dont la somme des durées vaut exactement totalBeats.
-     * Approche gloutonne avec retour arrière simple (relance complète si blocage).
+     *
+     * `style` détermine le PROFIL rythmique (utile surtout pour le sujet — le
+     * contrepoint libre continue par défaut d'utiliser 'varied', comportement
+     * historique inchangé) :
+     *  - 'varied'   : chaque durée tirée librement parmi toutes les valeurs
+     *                 autorisées (algorithme d'origine) — le plus imprévisible,
+     *                 peut mélanger des durées disparates de façon peu naturelle
+     *  - 'balanced' : une durée "principale" domine (~65% des notes), avec
+     *                 quelques valeurs voisines en ornementation, une note de
+     *                 départ plus longue pour poser le sujet — profil le plus
+     *                 proche des sujets classiques (recommandé par défaut)
+     *  - 'steady'   : une seule durée (le "pouls") du début à la fin, sauf la
+     *                 toute première note (souvent doublée) et le dernier
+     *                 ajustement — style "moto perpetuo", très fréquent chez Bach
+     *  - 'dotted'   : alternance croche pointée/double-croche (rythme pointé),
+     *                 profil marqué et immédiatement reconnaissable
      */
-    function generateRhythm(totalBeats, rng, maxAttempts = 500) {
+    function generateRhythm(totalBeats, rng, style = 'varied', maxAttempts = 500) {
+      switch (style) {
+        case 'balanced': return generateRhythmBalanced(totalBeats, rng, maxAttempts);
+        case 'steady': return generateRhythmSteady(totalBeats, rng, maxAttempts);
+        case 'dotted': return generateRhythmDotted(totalBeats, rng, maxAttempts);
+        case 'varied':
+        default: return generateRhythmVaried(totalBeats, rng, maxAttempts);
+      }
+    }
+
+    function generateRhythmVaried(totalBeats, rng, maxAttempts = 500) {
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const durations = [];
         let remaining = totalBeats;
@@ -297,6 +322,102 @@
         if (!failed && durations.length >= 4) return durations;
       }
       throw new Error(`Impossible de générer un rythme pour ${totalBeats} temps après ${maxAttempts} essais`);
+    }
+
+    function generateRhythmBalanced(totalBeats, rng, maxAttempts = 500) {
+      const PRIMARY_OPTIONS = [0.5, 1];
+      const NEIGHBORS = { 0.5: [0.25, 0.75, 1], 1: [0.5, 1.5, 2] };
+
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const primary = pick(PRIMARY_OPTIONS, rng);
+        const neighbors = NEIGHBORS[primary];
+        const durations = [];
+        let remaining = totalBeats;
+        let failed = false;
+
+        while (remaining > 1e-6) {
+          const pool = [primary, ...neighbors].filter(d => d <= remaining + 1e-6);
+          if (pool.length === 0) { failed = true; break; }
+          const exact = pool.find(d => Math.abs(d - remaining) < 1e-6);
+
+          let choice;
+          if (durations.length === 0) {
+            // Note de départ : plus longue si possible, pour poser le sujet.
+            const longer = pool.filter(d => d > primary + 1e-6);
+            choice = longer.length > 0 && rng() < 0.65 ? longer[longer.length - 1] : primary;
+          } else if (exact && rng() < 0.4) {
+            choice = exact;
+          } else if (rng() < 0.65 && pool.includes(primary)) {
+            choice = primary;
+          } else {
+            choice = pick(pool, rng);
+          }
+
+          durations.push(choice);
+          remaining -= choice;
+          remaining = Math.round(remaining * 1000) / 1000;
+        }
+        if (!failed && durations.length >= 4) return durations;
+      }
+      throw new Error(`Impossible de générer un rythme équilibré pour ${totalBeats} temps après ${maxAttempts} essais`);
+    }
+
+    function generateRhythmSteady(totalBeats, rng, maxAttempts = 500) {
+      const PRIMARY_OPTIONS = [0.25, 0.5, 1];
+
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const primary = pick(PRIMARY_OPTIONS, rng);
+        const durations = [];
+        let remaining = totalBeats;
+
+        const startDur = (primary * 2 <= remaining + 1e-6) && rng() < 0.6 ? primary * 2 : primary;
+        durations.push(startDur);
+        remaining = Math.round((remaining - startDur) * 1000) / 1000;
+
+        while (remaining > primary - 1e-6) {
+          durations.push(primary);
+          remaining = Math.round((remaining - primary) * 1000) / 1000;
+        }
+
+        let failed = false;
+        if (remaining > 1e-6) {
+          const fallback = ALLOWED_DURATIONS.find(d => Math.abs(d - remaining) < 1e-6);
+          if (fallback) durations.push(fallback); else failed = true;
+        }
+        if (!failed && durations.length >= 4) return durations;
+      }
+      throw new Error(`Impossible de générer un rythme régulier pour ${totalBeats} temps après ${maxAttempts} essais`);
+    }
+
+    function generateRhythmDotted(totalBeats, rng, maxAttempts = 500) {
+      const CELL = [0.75, 0.25];
+
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const durations = [];
+        let remaining = totalBeats;
+        let failed = false;
+
+        while (remaining > 1e-6 && !failed) {
+          let placedInCell = false;
+          for (const d of CELL) {
+            if (remaining <= 1e-6) break;
+            if (d <= remaining + 1e-6) {
+              durations.push(d);
+              remaining = Math.round((remaining - d) * 1000) / 1000;
+              placedInCell = true;
+            } else {
+              const fallback = ALLOWED_DURATIONS.filter(v => v <= remaining + 1e-6).sort((a, b) => b - a)[0];
+              if (!fallback) { failed = true; break; }
+              durations.push(fallback);
+              remaining = Math.round((remaining - fallback) * 1000) / 1000;
+              placedInCell = true;
+            }
+          }
+          if (!placedInCell) failed = true;
+        }
+        if (!failed && durations.length >= 4) return durations;
+      }
+      throw new Error(`Impossible de générer un rythme pointé pour ${totalBeats} temps après ${maxAttempts} essais`);
     }
 
     /**
@@ -427,9 +548,10 @@
      * @param {Key} params.key
      * @param {number} params.totalBeats - longueur du sujet en battements (noire=1)
      * @param {function} [params.rng] - générateur pseudo-aléatoire (0..1), Math.random par défaut
+     * @param {'varied'|'balanced'|'steady'|'dotted'} [params.rhythmStyle] - profil rythmique du sujet, défaut 'balanced'
      */
-    function generateSubject({ key, totalBeats, rng = Math.random }) {
-      const rhythm = generateRhythm(totalBeats, rng);
+    function generateSubject({ key, totalBeats, rng = Math.random, rhythmStyle = 'balanced' }) {
+      const rhythm = generateRhythm(totalBeats, rng, rhythmStyle);
       const melody = generateMelodyDegrees(key, rhythm.length, rng);
       const notes = melody.map((m, i) => ({ ...m, duration: rhythm[i] }));
       return { key, totalBeats, notes };
@@ -438,6 +560,10 @@
     Object.assign(Lib, {
       ALLOWED_DURATIONS,
       generateRhythm,
+      generateRhythmVaried,
+      generateRhythmBalanced,
+      generateRhythmSteady,
+      generateRhythmDotted,
       generateMelodyDegrees,
       generateSubject,
       isForbiddenMelodicInterval,
@@ -1050,7 +1176,7 @@
     // sur toute sa durée (le sujet a son propre plafond, plus étroit, cf subject-generator.js).
     const DEFAULT_AMBITUS_CAP = 24; // deux octaves — les bornes de tessiture (registerBounds) restent le garde-fou principal ; l'ambitus est une sécurité secondaire, élargie pour laisser de la place sur un morceau à plusieurs sections (exposition + divertissement + rentrée + pédale, etc.)
 
-    function generateExposition({ key, subjectBeats, numVoices = 3, rng = Math.random, registerBoundsByVoice = null, ambitusCap = DEFAULT_AMBITUS_CAP, maxExpositionAttempts = 15 }) {
+    function generateExposition({ key, subjectBeats, numVoices = 3, rng = Math.random, registerBoundsByVoice = null, ambitusCap = DEFAULT_AMBITUS_CAP, maxExpositionAttempts = 15, rhythmStyle = 'balanced' }) {
       // Important : on valide le résultat à CHAQUE tentative, pas seulement les
       // exceptions. Le contrôle des quintes/octaves parallèles pendant la
       // génération reste local (voir voice-generator.js) et peut, dans de rares
@@ -1062,7 +1188,7 @@
       let lastError;
       for (let attempt = 0; attempt < maxExpositionAttempts; attempt++) {
         try {
-          const result = generateExpositionOnce({ key, subjectBeats, numVoices, rng, registerBoundsByVoice, ambitusCap });
+          const result = generateExpositionOnce({ key, subjectBeats, numVoices, rng, registerBoundsByVoice, ambitusCap, rhythmStyle });
           const check = validateExposition(result.voices);
           if (check.valid) return result;
           lastError = new Error('validation échouée : ' + check.errors.join('; '));
@@ -1073,8 +1199,8 @@
       throw new Error(`Impossible de générer une exposition complète et valide après ${maxExpositionAttempts} tentatives (dernière erreur : ${lastError.message})`);
     }
 
-    function generateExpositionOnce({ key, subjectBeats, numVoices, rng, registerBoundsByVoice, ambitusCap }) {
-      const subject = generateSubject({ key, totalBeats: subjectBeats, rng });
+    function generateExpositionOnce({ key, subjectBeats, numVoices, rng, registerBoundsByVoice, ambitusCap, rhythmStyle }) {
+      const subject = generateSubject({ key, totalBeats: subjectBeats, rng, rhythmStyle });
       const sv = validateSubject(key, subject.notes);
       if (!sv.valid) throw new Error('Sujet généré invalide (inattendu) : ' + sv.errors.join('; '));
 
