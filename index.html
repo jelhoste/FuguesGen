@@ -256,11 +256,65 @@
     </div>
   </section>
 
+  <section class="panel" style="margin-top:1.5rem;">
+    <h2 style="font-size:1.15rem;font-weight:500;margin:0 0 0.9rem;">Atelier du sujet</h2>
+    <div class="field-grid">
+      <div class="field">
+        <label for="subj-tonic">Tonique</label>
+        <select id="subj-tonic">
+          <option>C</option><option>C#</option><option>D</option><option>Eb</option>
+          <option>E</option><option>F</option><option>F#</option><option>G</option>
+          <option>Ab</option><option>A</option><option>Bb</option><option>B</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="subj-mode">Mode</label>
+        <select id="subj-mode">
+          <option value="major">Majeur</option>
+          <option value="minor">Mineur</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="subj-beats">Longueur (temps)</label>
+        <select id="subj-beats">
+          <option value="4">4</option>
+          <option value="6" selected>6</option>
+          <option value="8">8</option>
+        </select>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="primary" id="subj-generate">Générer un sujet</button>
+      <span id="subj-status"></span>
+    </div>
+
+    <div id="subj-result" hidden style="margin-top:1.4rem;">
+      <div id="subj-score-wrap" style="overflow-x:hidden;background:#fff;border-radius:4px;padding:10px 8px;">
+        <div id="subj-score"></div>
+      </div>
+      <div class="actions" style="margin-top:0.9rem;">
+        <button class="secondary" id="subj-play" disabled>Écouter</button>
+        <button class="secondary" id="subj-stop" disabled>Arrêter</button>
+      </div>
+      <div class="field" style="margin-top:1rem;">
+        <label for="subj-abc">Notation ABC (modifiable — éditez puis cliquez sur « Mettre à jour »)</label>
+        <textarea id="subj-abc" rows="6" style="width:100%;background:var(--ink);color:var(--parchment);border:1px solid var(--line);border-radius:3px;padding:0.6rem;font-family:'Courier New',monospace;font-size:0.85rem;"></textarea>
+      </div>
+      <div class="actions">
+        <button class="secondary" id="subj-update">Mettre à jour l'aperçu</button>
+      </div>
+      <p style="font-family:-apple-system,'Segoe UI',sans-serif;font-size:0.8rem;color:var(--parchment-dim);">
+        Atelier indépendant : ce sujet modifié n'est pas (encore) réinjecté dans le générateur de fugue ci-dessus — c'est un espace pour explorer et écouter des variantes de sujet.
+      </p>
+    </div>
+  </section>
+
   <section id="result" hidden>
     <div id="structure"></div>
     <div id="score-wrap"><div id="score"></div></div>
     <div class="actions" style="margin-top:1rem;">
       <button class="secondary" id="play" disabled>Écouter</button>
+      <button class="secondary" id="stop" disabled>Arrêter</button>
       <div class="field" style="flex:0 0 auto;display:flex;align-items:center;gap:0.6rem;">
         <label for="tempo" style="margin:0;">Vitesse</label>
         <input type="range" id="tempo" min="50" max="200" step="5" value="110" style="width:150px;accent-color:var(--brass);">

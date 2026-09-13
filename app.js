@@ -30,7 +30,39 @@ function noteName(midi) {
   return names[((Math.round(midi) % 12) + 12) % 12];
 }
 
-// ---------- Génération ----------
+/** Convertit une séquence {midi,duration} en jetons ABC (notes/silences + barres de mesure, M:4/4). */
+function notesToAbcTokens(midiNotes, leadingRestBeats) {
+  const tokens = [];
+  let beatsSinceBar = 0;
+
+  function pushDuration(beats, tokenBuilder) {
+    let remaining = beats;
+    while (remaining > 1e-6) {
+      const room = 4 - beatsSinceBar;
+      const chunk = Math.min(remaining, room);
+      tokens.push(tokenBuilder(chunk));
+      beatsSinceBar += chunk;
+      remaining -= chunk;
+      if (beatsSinceBar >= 4 - 1e-6) {
+        tokens.push('|');
+        beatsSinceBar = 0;
+      }
+    }
+  }
+
+  if (leadingRestBeats > 1e-6) {
+    pushDuration(leadingRestBeats, (chunk) => `z${beatsToAbcLength(chunk)}`);
+  }
+  for (const n of midiNotes) {
+    const pitch = midiToAbcPitch(n.midi);
+    pushDuration(n.duration, (chunk) => `${pitch}${beatsToAbcLength(chunk)}`);
+  }
+  if (tokens[tokens.length - 1] === '|') tokens.pop();
+  tokens.push('|]');
+  return tokens.join(' ');
+}
+
+// ---------- Génération (fugue complète) ----------
 
 function attemptFullPiece(params) {
   const key = new FugueLib.Key(params.tonic, params.mode);
@@ -88,8 +120,6 @@ function generateFullPiece(params, maxAttempts) {
   throw lastError || new Error('échec inconnu');
 }
 
-// ---------- Conversion vers ABC notation ----------
-
 function pieceToAbc(piece, tuneIndex) {
   const lines = [
     `X:${tuneIndex || 1}`,
@@ -98,66 +128,60 @@ function pieceToAbc(piece, tuneIndex) {
     'L:1/16',
     'K:C', // pas d'armure : toutes les altérations sont écrites explicitement note par note
   ];
-
   piece.exp.voices.forEach((voiceData, idx) => {
     lines.push(`V:${idx + 1} clef=${idx === piece.exp.voices.length - 1 ? 'bass' : 'treble'} name="Voix ${idx + 1}"`);
-
-    const tokens = [];
-    let beatsSinceBar = 0;
-
-    function pushDuration(beats, tokenBuilder) {
-      // Découpe une durée en morceaux qui ne dépassent jamais une mesure
-      // (4 temps), pour insérer les barres de mesure au bon endroit.
-      let remaining = beats;
-      let first = true;
-      while (remaining > 1e-6) {
-        const room = 4 - beatsSinceBar;
-        const chunk = Math.min(remaining, room);
-        tokens.push(tokenBuilder(chunk, first));
-        beatsSinceBar += chunk;
-        remaining -= chunk;
-        first = false;
-        if (beatsSinceBar >= 4 - 1e-6) {
-          tokens.push('|');
-          beatsSinceBar = 0;
-        }
-      }
-    }
-
-    if (voiceData.firstStart > 1e-6) {
-      pushDuration(voiceData.firstStart, (chunk) => `z${beatsToAbcLength(chunk)}`);
-    }
-    for (const n of voiceData.midiNotes) {
-      const pitch = midiToAbcPitch(n.midi);
-      pushDuration(n.duration, (chunk) => `${pitch}${beatsToAbcLength(chunk)}`);
-    }
-    if (tokens[tokens.length - 1] === '|') tokens.pop();
-    tokens.push('|]');
-
-    lines.push(tokens.join(' '));
+    lines.push(notesToAbcTokens(voiceData.midiNotes, voiceData.firstStart));
   });
-
   return lines.join('\n');
 }
 
-// ---------- Rendu + lecture (abcjs) ----------
+// ---------- Génération (sujet seul) ----------
 
-let currentSynthController = null;
+function generateSubjectOnly(params) {
+  const key = new FugueLib.Key(params.tonic, params.mode);
+  let lastError;
+  for (let i = 0; i < 10; i++) {
+    try {
+      const subject = FugueLib.generateSubject({ key, totalBeats: params.subjectBeats });
+      const check = FugueLib.validateSubject(key, subject.notes);
+      if (!check.valid) throw new Error('sujet invalide (inattendu) : ' + check.errors.join('; '));
+      const midiNotes = FugueLib.notesToMidi(key, subject.notes);
+      return { key, midiNotes };
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw lastError || new Error('échec inconnu');
+}
 
-function renderAndPreparePlayback(container, piece, tuneIndex) {
+function subjectToAbc(key, midiNotes, tuneIndex) {
+  const lines = [
+    `X:${tuneIndex || 1}`,
+    `T:Sujet en ${key.toString()}`,
+    'M:4/4',
+    'L:1/16',
+    'K:C',
+    notesToAbcTokens(midiNotes, 0),
+  ];
+  return lines.join('\n');
+}
+
+// ---------- Rendu (abcjs) ----------
+
+function renderAbcToContainer(container, abcText, options) {
   container.innerHTML = '';
-  const abcText = pieceToAbc(piece, tuneIndex);
   console.log('--- ABC généré ---\n' + abcText);
 
-  const staffwidth = Math.max(320, container.parentElement.clientWidth - 40);
+  const staffwidth = Math.max(280, container.parentElement.clientWidth - 36);
   const warnings = [];
   const visualObjs = ABCJS.renderAbc(container, abcText, {
     responsive: 'resize',
     staffwidth,
+    scale: (options && options.scale) || 0.78,
     wrap: {
       minSpacing: 1.8,
       maxSpacing: 2.7,
-      preferredMeasuresPerLine: 4,
+      preferredMeasuresPerLine: (options && options.measuresPerLine) || 4,
       lastLineLimit: 1,
     },
     add_classes: true,
@@ -167,34 +191,41 @@ function renderAndPreparePlayback(container, piece, tuneIndex) {
   if (!visualObjs || !visualObjs[0] || container.children.length === 0) {
     throw new Error('abcjs n\'a produit aucun rendu visible (voir la console pour le texte ABC et les avertissements).');
   }
-  return { visualObj: visualObjs[0], abcText };
+  return visualObjs[0];
 }
 
-async function stopPlayback() {
-  if (currentSynthController) {
-    try { await currentSynthController.stop(); } catch (e) { /* ignore */ }
-    currentSynthController = null;
+// ---------- Lecture (abcjs synth), avec bouton Stop ----------
+
+function createPlayer(playBtn, stopBtn) {
+  let synth = null;
+
+  async function stop() {
+    if (synth) {
+      try { await synth.stop(); } catch (e) { /* ignore */ }
+      synth = null;
+    }
+    stopBtn.disabled = true;
   }
-}
 
-async function playPiece(visualObj, bpm) {
-  await stopPlayback();
-  if (!ABCJS.synth.supportsAudio()) {
-    throw new Error("ce navigateur ne supporte pas la lecture audio Web Audio.");
+  async function play(visualObj, bpm) {
+    await stop();
+    if (!ABCJS.synth.supportsAudio()) {
+      throw new Error("ce navigateur ne supporte pas la lecture audio Web Audio.");
+    }
+    const msPerMeasure = 240000 / (bpm || 110); // 4 temps par mesure (M:4/4)
+    const s = new ABCJS.synth.CreateSynth();
+    await s.init({ visualObj, millisecondsPerMeasure: msPerMeasure, options: {} });
+    await s.prime();
+    s.start();
+    synth = s;
+    stopBtn.disabled = false;
   }
-  const msPerMeasure = 240000 / (bpm || 110); // 4 temps par mesure (M:4/4)
-  const synth = new ABCJS.synth.CreateSynth();
-  await synth.init({
-    visualObj,
-    millisecondsPerMeasure: msPerMeasure,
-    options: {},
-  });
-  await synth.prime();
-  synth.start();
-  currentSynthController = synth;
+
+  stopBtn.addEventListener('click', () => stop());
+  return { play, stop };
 }
 
-// ---------- Interface ----------
+// ---------- Interface : fugue complète ----------
 
 const els = {
   tonic: document.getElementById('tonic'),
@@ -212,6 +243,7 @@ const els = {
   pieceSelector: document.getElementById('piece-selector'),
   downloadAbc: document.getElementById('download-abc'),
   play: document.getElementById('play'),
+  stop: document.getElementById('stop'),
   tempo: document.getElementById('tempo'),
   tempoValue: document.getElementById('tempo-value'),
   status: document.getElementById('status'),
@@ -220,6 +252,7 @@ const els = {
   score: document.getElementById('score'),
 };
 
+const mainPlayer = createPlayer(els.play, els.stop);
 let lastVisualObj = null;
 let batch = []; // [{ piece, params }]
 
@@ -250,8 +283,7 @@ function renderStructure(el, piece, params) {
 
 function showPiece(piece, params, tuneIndex) {
   renderStructure(els.structure, piece, params);
-  const rendered = renderAndPreparePlayback(els.score, piece, tuneIndex);
-  lastVisualObj = rendered.visualObj;
+  lastVisualObj = renderAbcToContainer(els.score, pieceToAbc(piece, tuneIndex));
   els.result.hidden = false;
   els.play.disabled = false;
 }
@@ -264,7 +296,7 @@ els.generate.addEventListener('click', () => {
   els.generate.disabled = true;
   els.generateBatch.disabled = true;
   els.play.disabled = true;
-  stopPlayback();
+  mainPlayer.stop();
   els.status.className = '';
   els.status.textContent = 'Génération en cours…';
 
@@ -290,7 +322,7 @@ els.generateBatch.addEventListener('click', async () => {
   els.generate.disabled = true;
   els.generateBatch.disabled = true;
   els.play.disabled = true;
-  stopPlayback();
+  mainPlayer.stop();
   els.status.className = '';
   els.status.textContent = `Génération du recueil (0/${count})…`;
 
@@ -329,7 +361,7 @@ els.pieceSelector.addEventListener('change', () => {
   const idx = parseInt(els.pieceSelector.value, 10);
   const entry = batch[idx];
   if (!entry) return;
-  stopPlayback();
+  mainPlayer.stop();
   showPiece(entry.piece, entry.params, idx + 1);
 });
 
@@ -353,7 +385,7 @@ els.play.addEventListener('click', async () => {
   if (!lastVisualObj) return;
   els.play.disabled = true;
   try {
-    await playPiece(lastVisualObj, parseInt(els.tempo.value, 10));
+    await mainPlayer.play(lastVisualObj, parseInt(els.tempo.value, 10));
   } catch (e) {
     els.status.className = 'error';
     els.status.textContent = 'Lecture impossible : ' + e.message;
@@ -361,6 +393,83 @@ els.play.addEventListener('click', async () => {
     els.play.disabled = false;
   }
 });
+
+// ---------- Interface : atelier du sujet ----------
+
+const subjEls = {
+  tonic: document.getElementById('subj-tonic'),
+  mode: document.getElementById('subj-mode'),
+  beats: document.getElementById('subj-beats'),
+  generate: document.getElementById('subj-generate'),
+  status: document.getElementById('subj-status'),
+  result: document.getElementById('subj-result'),
+  score: document.getElementById('subj-score'),
+  abc: document.getElementById('subj-abc'),
+  update: document.getElementById('subj-update'),
+  play: document.getElementById('subj-play'),
+  stop: document.getElementById('subj-stop'),
+};
+
+const subjPlayer = createPlayer(subjEls.play, subjEls.stop);
+let subjVisualObj = null;
+
+subjEls.generate.addEventListener('click', () => {
+  const params = {
+    tonic: subjEls.tonic.value,
+    mode: subjEls.mode.value,
+    subjectBeats: parseInt(subjEls.beats.value, 10),
+  };
+  subjEls.generate.disabled = true;
+  subjPlayer.stop();
+  subjEls.status.className = '';
+  subjEls.status.textContent = 'Génération…';
+
+  setTimeout(() => {
+    try {
+      const { key, midiNotes } = generateSubjectOnly(params);
+      const abcText = subjectToAbc(key, midiNotes, 1);
+      subjEls.abc.value = abcText;
+      subjVisualObj = renderAbcToContainer(subjEls.score, abcText, { scale: 1, measuresPerLine: 8 });
+      subjEls.result.hidden = false;
+      subjEls.play.disabled = false;
+      subjEls.status.textContent = 'Sujet généré.';
+    } catch (e) {
+      subjEls.status.className = 'error';
+      subjEls.status.textContent = 'Échec : ' + e.message;
+    } finally {
+      subjEls.generate.disabled = false;
+    }
+  }, 20);
+});
+
+subjEls.update.addEventListener('click', () => {
+  subjPlayer.stop();
+  subjEls.status.className = '';
+  try {
+    subjVisualObj = renderAbcToContainer(subjEls.score, subjEls.abc.value, { scale: 1, measuresPerLine: 8 });
+    subjEls.play.disabled = false;
+    subjEls.status.textContent = 'Aperçu mis à jour.';
+  } catch (e) {
+    subjEls.status.className = 'error';
+    subjEls.status.textContent = 'Notation ABC invalide : ' + e.message;
+    subjEls.play.disabled = true;
+  }
+});
+
+subjEls.play.addEventListener('click', async () => {
+  if (!subjVisualObj) return;
+  subjEls.play.disabled = true;
+  try {
+    await subjPlayer.play(subjVisualObj, 100);
+  } catch (e) {
+    subjEls.status.className = 'error';
+    subjEls.status.textContent = 'Lecture impossible : ' + e.message;
+  } finally {
+    subjEls.play.disabled = false;
+  }
+});
+
+// ---------- Service worker ----------
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
